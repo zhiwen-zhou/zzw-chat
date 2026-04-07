@@ -1,11 +1,8 @@
 import os
-import json
-import re
-from typing import AsyncGenerator
 
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, HTMLResponse
-from fastapi.templating import Jinja2Templates
+from starlette.templating import Jinja2Templates
 from dotenv import load_dotenv
 import httpx
 
