@@ -2,12 +2,13 @@ import os
 import json
 import traceback
 from typing import AsyncGenerator
-
+from fastapi.responses import JSONResponse
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, HTMLResponse
 from starlette.templating import Jinja2Templates
 from dotenv import load_dotenv
 import httpx
+
 
 # ------------------ 基础配置 ------------------
 load_dotenv()
@@ -63,81 +64,28 @@ async def root():
     except Exception as e:
         return HTMLResponse(f"<h1>错误：{str(e)}</h1>路径：{html_path}", status_code=500)
 
-# ------------------ 流式聊天（最终稳定版） ------------------
 @app.post("/chat/stream")
 async def chat_stream(request: Request):
-    try:
-        body = await request.json()
-        user_message = body.get("message", "")
+    body = await request.json()
+    messages = body.get("messages", [])
 
-        async def event_generator() -> AsyncGenerator[str, None]:
-            async with httpx.AsyncClient(timeout=None) as client:
-                resp = await client.post(
-                    URL,
-                    headers={
-                        "Authorization": f"Bearer {API_KEY}",
-                        "Content-Type": "application/json",
-                        "Accept": "text/event-stream"
-                    },
-                    json={
-                        "model": "deepseek-r1",
-                        "messages": [
-                            {"role": "system", "content": SYSTEM_PROMPT},
-                            {"role": "user", "content": user_message}
-                        ],
-                        "stream": True
-                    },
-                    timeout=None
-                )
-
-                # ✅ Windows + httpx + Starlette 最稳写法
-                async for chunk in resp.iter_raw():
-                    if chunk:
-                        yield chunk.decode("utf-8", errors="ignore")
-
-        return StreamingResponse(
-            event_generator(),
-            media_type="text/event-stream"
+    async with httpx.AsyncClient(timeout=None) as client:
+        resp = await client.post(
+            URL,
+            headers={
+                "Authorization": f"Bearer {API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "deepseek-r1",
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    *messages
+                ],
+                "stream": False
+            }
         )
 
-    except Exception:
-        # ✅ 强制在控制台打印完整 Traceback
-        traceback.print_exc()
-        raise
-
-@app.post("/chat/no-stream")
-async def chat_no_stream(request: Request):
-    try:
-        body = await request.json()
-        user_message = body.get("message", "")
-
-        async with httpx.AsyncClient(timeout=None) as client:
-            resp = await client.post(
-                URL,
-                headers={
-                    "Authorization": f"Bearer {API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "deepseek-r1",
-                    "messages": [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": user_message}
-                    ]
-                }
-            )
-
-            # 非流式，直接返回完整 JSON
-            result = resp.json()
-            reply = result["choices"][0]["message"]["content"]
-            return {"reply": reply}
-
-    except Exception as e:
-        # 这里一定会打印错误，帮你定位问题
-        print("❌ /chat/no-stream 异常：", str(e))
-        print(traceback.format_exc())
-        return {"error": str(e), "trace": traceback.format_exc()}
-
-@app.get("/ping")
-async def ping():
-    return {"status": "ok"}
+    data = resp.json()
+    content = data["choices"][0]["message"]["content"]
+    return JSONResponse({"content": content})
